@@ -1,0 +1,40 @@
+name: drift-check
+
+on:
+  schedule:
+    - cron: "0 9 * * *"   # 09:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: []   # populated dynamically below
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      # Drift detection re-runs deploy in dry-run mode; if any uploads/deletes would happen,
+      # that's drift. The deploy script prints the diff to stdout.
+      - env:
+          ACCOUNT_SP_CLIENT_ID: ${{ secrets.ACCOUNT_SP_CLIENT_ID }}
+          ACCOUNT_SP_CLIENT_SECRET: ${{ secrets.ACCOUNT_SP_CLIENT_SECRET }}
+          GITHUB_SHA: ${{ github.sha }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          for ws in $(ls workspaces/ | grep -v '^_'); do
+            echo "::group::$ws"
+            (cd scripts && python compile.py --workspace "$ws")
+            (cd scripts && python deploy.py --workspace "$ws" --dry-run) | tee /tmp/drift-$ws.log
+            if grep -qE '^\s*(\[dry-run\] would (upload|delete)|remove:|upload:)' /tmp/drift-$ws.log; then
+              echo "::warning::drift detected in $ws"
+            fi
+            echo "::endgroup::"
+          done

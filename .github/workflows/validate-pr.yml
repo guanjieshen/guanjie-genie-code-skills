@@ -1,0 +1,47 @@
+name: validate-pr
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Validate (lint + cap check)
+        run: |
+          cd scripts
+          python validate.py
+
+      - name: Compile all workspaces
+        run: |
+          cd scripts
+          python compile.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-preview
+          path: build/
+          retention-days: 7
+
+      - name: PR summary
+        if: always()
+        run: |
+          echo "## Build preview" >> $GITHUB_STEP_SUMMARY
+          for manifest in build/*/manifest.json; do
+            ws=$(basename $(dirname "$manifest"))
+            chars=$(jq -r .instructions_chars "$manifest")
+            cap=$(jq -r .instructions_cap "$manifest")
+            skills=$(jq -r '.skills | length' "$manifest")
+            pct=$(awk "BEGIN { printf \"%.1f\", 100 * $chars / $cap }")
+            echo "- **$ws** — $skills skills, instructions $chars/$cap chars (${pct}%)" >> $GITHUB_STEP_SUMMARY
+          done

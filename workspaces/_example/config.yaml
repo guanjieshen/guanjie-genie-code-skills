@@ -1,0 +1,31 @@
+apiVersion: skills.databricks.io/v1
+kind: WorkspaceConfig
+
+# Example workspace config. Copy this folder to workspaces/<your-workspace-name>/,
+# fill in host + workspace_id, and add any per-workspace skills/instructions.
+# Anything not set here falls back to defaults.yaml at the repo root.
+
+name: example
+host: https://example.cloud.databricks.com
+workspace_id: 0000000000000000
+
+# Override the environment if this should require manual approval gates.
+environment: dev
+
+# All inheritance fields are optional — defaults.yaml provides sensible behavior.
+# Uncomment to override:
+#
+# inheritance:
+#   layers: [enterprise]
+#   instructions:
+#     enabled: true
+#   skills:
+#     enterprise: all          # or: [data-exploration]  to allow-list specific skills
+
+# auth.mode can be set to `workspace_sp` if the account SP can't reach this workspace.
+# When using workspace_sp, set the GitHub secret names below:
+#
+# auth:
+#   mode: workspace_sp
+#   client_id_secret: EXAMPLE_CLIENT_ID
+#   client_secret_secret: EXAMPLE_CLIENT_SECRET

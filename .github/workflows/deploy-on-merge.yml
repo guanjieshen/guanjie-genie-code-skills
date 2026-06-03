@@ -1,0 +1,84 @@
+name: deploy-on-merge
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.route.outputs.targets }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need history for diff
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Route changes to workspaces
+        id: route
+        run: |
+          # Determine which workspaces need redeployment based on changed paths.
+          # - enterprise/* or scripts/* or .github/* changes → all workspaces
+          # - workspaces/<name>/* changes → only that workspace
+          # Use the previous commit as the diff base.
+          base=$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)
+          changed=$(git diff --name-only "$base" HEAD)
+          echo "Changed files:"
+          echo "$changed"
+
+          all_workspaces=$(ls workspaces/ 2>/dev/null | grep -v '^_' || true)
+
+          should_run_all=$(echo "$changed" | grep -E '^(enterprise/|scripts/|\.github/|defaults\.yaml)' || true)
+          if [ -n "$should_run_all" ]; then
+            targets="$all_workspaces"
+          else
+            targets=$(echo "$changed" | awk -F/ '/^workspaces\// {print $2}' | sort -u)
+          fi
+
+          # Emit as a JSON array for matrix consumption.
+          json=$(echo "$targets" | jq -R . | jq -sc '. | map(select(length > 0))')
+          echo "targets=$json" >> $GITHUB_OUTPUT
+          echo "Targets: $json"
+
+  deploy:
+    needs: plan
+    if: needs.plan.outputs.targets != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: ${{ fromJson(needs.plan.outputs.targets) }}
+    environment: ${{ matrix.workspace }}   # GitHub Environment per workspace; approvals + scoped secrets attach here
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Compile workspace
+        run: |
+          cd scripts
+          python compile.py --workspace "${{ matrix.workspace }}"
+
+      - name: Deploy workspace
+        env:
+          ACCOUNT_SP_CLIENT_ID: ${{ secrets.ACCOUNT_SP_CLIENT_ID }}
+          ACCOUNT_SP_CLIENT_SECRET: ${{ secrets.ACCOUNT_SP_CLIENT_SECRET }}
+          # workspace_sp fallback: secrets named in config.yaml come from the Environment too.
+          # Add them as Environment secrets matching client_id_secret/client_secret_secret values.
+          GITHUB_SHA: ${{ github.sha }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          cd scripts
+          python deploy.py --workspace "${{ matrix.workspace }}"

@@ -1,0 +1,66 @@
+name: deploy-manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace:
+        description: 'Workspace name (or "all")'
+        required: true
+        default: "all"
+      ref:
+        description: "Git ref to deploy from (defaults to main)"
+        required: false
+        default: "main"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.route.outputs.targets }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - id: route
+        run: |
+          if [ "${{ inputs.workspace }}" = "all" ]; then
+            targets=$(ls workspaces/ 2>/dev/null | grep -v '^_' || true)
+          else
+            targets="${{ inputs.workspace }}"
+          fi
+          json=$(echo "$targets" | jq -R . | jq -sc '. | map(select(length > 0))')
+          echo "targets=$json" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: plan
+    if: needs.plan.outputs.targets != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: ${{ fromJson(needs.plan.outputs.targets) }}
+    environment: ${{ matrix.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - run: |
+          cd scripts
+          python compile.py --workspace "${{ matrix.workspace }}"
+
+      - env:
+          ACCOUNT_SP_CLIENT_ID: ${{ secrets.ACCOUNT_SP_CLIENT_ID }}
+          ACCOUNT_SP_CLIENT_SECRET: ${{ secrets.ACCOUNT_SP_CLIENT_SECRET }}
+          GITHUB_SHA: ${{ github.sha }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          cd scripts
+          python deploy.py --workspace "${{ matrix.workspace }}"

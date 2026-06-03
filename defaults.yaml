@@ -1,0 +1,26 @@
+apiVersion: skills.databricks.io/v1
+kind: Defaults
+
+# Default config that every workspace inherits. Per-workspace config.yaml
+# files only need to set fields that differ from these defaults.
+
+auth:
+  mode: account_sp                # account_sp | workspace_sp
+  # account_sp uses org-wide ACCOUNT_SP_CLIENT_ID + ACCOUNT_SP_CLIENT_SECRET.
+  # workspace_sp expects per-workspace secrets named in the workspace config.
+
+scope: workspace                  # workspace (admin) | user
+                                  # workspace → /Workspace/.assistant_workspace_instructions.md
+                                  # user      → /Workspace/Users/<email>/.assistant_instructions.md
+
+inheritance:
+  layers: [enterprise]            # Ordered list of layer dirs. v1 ships with only `enterprise`.
+                                  # Future tiers (e.g. profiles/hipaa) plug in here with no script changes.
+  instructions:
+    enabled: true                 # If false, this workspace gets only its own instructions.
+  skills:
+    enterprise: all               # Per-layer skill allow-list. "all" = inherit every skill from the layer.
+                                  # Alternatively: enterprise: [data-exploration, pii-handling]
+
+environment: dev                  # Maps to GitHub Environment for approval gates.
+                                  # `production` should require reviewers; `dev` deploys straight through.
